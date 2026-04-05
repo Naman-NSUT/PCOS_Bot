@@ -23,9 +23,9 @@ CHROMA_COLLECTION_NAME = "pcos_knowledge"
 
 # ── Gemini ─────────────────────────────────────────────────────────────────
 GEMINI_API_KEY   = os.getenv("GEMINI_API_KEY", "")
-EMBEDDING_MODEL  = "models/text-embedding-004"
-GRADER_MODEL     = "gemini-1.5-flash"    # per-chunk grading — fast
-GENERATOR_MODEL  = "gemini-1.5-pro"      # final narrative — high quality
+EMBEDDING_MODEL  = "models/gemini-embedding-001"
+GRADER_MODEL     = "gemini-2.5-flash"    # per-chunk grading — fast
+GENERATOR_MODEL  = "gemini-2.5-pro"      # final narrative — high quality
 
 # ── Ingestion ──────────────────────────────────────────────────────────────
 CHUNK_SIZE    = 800
@@ -37,7 +37,7 @@ MAX_RETRIEVAL_PASSES = 2   # original + one rewrite pass
 
 # ── API ────────────────────────────────────────────────────────────────────
 API_HOST = "0.0.0.0"
-API_PORT = 8000
+API_PORT = 8001
 
 SAFETY_DISCLAIMER = (
     "⚠️ DISCLAIMER: This analysis is for informational purposes only and is NOT a "

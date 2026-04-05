@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PCOS Bot — Clinical Report Analyzer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #8a4fff;
+            --primary-light: #f3ebff;
+            --accent: #ff4f8b;
+            --text-main: #1e293b;
+            --text-secondary: #64748b;
+            --bg: #f8fafc;
+            --white: #ffffff;
+            --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+            --radius-lg: 24px;
+            --radius-md: 16px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .logo-text {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 850px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--white);
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--card-shadow);
+            border: 1px solid rgba(0, 0, 0, 0.03);
+        }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: var(--text-main);
+            font-size: 0.9rem;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 0.95rem;
+            resize: vertical;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px var(--primary-light);
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        button {
+            flex: 1;
+            padding: 1rem;
+            border-radius: var(--radius-md);
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            color: var(--white);
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: var(--text-main);
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        #result-content {
+            display: none;
+            padding: 0;
+        }
+
+        .placeholder-view {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 4rem 2rem;
+        }
+
+        .loading-spinner {
+            display: none;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(var(--primary), 0.1);
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .narrative-box {
+            white-space: pre-wrap;
+            color: var(--text-main);
+            font-size: 0.95rem;
+        }
+
+        .narrative-box h2 {
+            margin-top: 1.5rem;
+            margin-bottom: 0.8rem;
+            font-size: 1.4rem;
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary-light);
+            padding-bottom: 0.3rem;
+        }
+
+        .narrative-box strong {
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .disclaimer {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #fff5f8;
+            border-radius: var(--radius-md);
+            border-left: 4px solid var(--accent);
+            font-size: 0.85rem;
+            color: #be185d;
+        }
+
+        .source-tag {
+            display: inline-block;
+            padding: 0.3rem 0.6rem;
+            background: var(--primary-light);
+            color: var(--primary);
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .sources-section {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="logo-text">PCOS Bot</h1>
+            <p class="subtitle">AI-Powered Diagnostic Report Analyzer</p>
+        </header>
+
+        <div class="main-grid">
+            <div class="card">
+                <div class="input-group">
+                    <label for="report-text">Lab Report Data</label>
+                    <textarea id="report-text" rows="12" placeholder="Paste biomarker values here, e.g.: LH: 12.4 mIU/mL, FSH: 5.1 mIU/mL..."></textarea>
+                </div>
+                <div class="input-group">
+                    <label for="patient-context">Patient Context (Optional)</label>
+                    <textarea id="patient-context" rows="4" placeholder="Age, symptoms, irregular cycles, etc."></textarea>
+                </div>
+                <div class="btn-row">
+                    <button id="btn-demo" class="btn-secondary">Load Demo</button>
+                    <button id="btn-analyze" class="btn-primary">Analyze</button>
+                </div>
+            </div>
+
+            <div class="card" id="output-card">
+                <div id="placeholder" class="placeholder-view">
+                    <div id="spinner" class="loading-spinner"></div>
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.2; margin-bottom: 1rem">
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <path d="M16 13H8"/>
+                        <path d="M16 17H8"/>
+                        <path d="M10 9H8"/>
+                    </svg>
+                    <p id="status-text">Your analysis results will appear here</p>
+                </div>
+
+                <div id="result-content">
+                    <div id="narrative" class="narrative-box"></div>
+                    <div id="sources" class="sources-section">
+                        <label>Knowledge Sources (CRAG):</label>
+                        <div id="source-list"></div>
+                    </div>
+                    <div id="disclaimer" class="disclaimer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:8001/analyze-report";
+
+        const btnAnalyze = document.getElementById('btn-analyze');
+        const btnDemo = document.getElementById('btn-demo');
+        const inputReport = document.getElementById('report-text');
+        const inputContext = document.getElementById('patient-context');
+        const resultContent = document.getElementById('result-content');
+        const placeholder = document.getElementById('placeholder');
+        const spinner = document.getElementById('spinner');
+        const statusText = document.getElementById('status-text');
+        const narrativeBox = document.getElementById('narrative');
+        const sourceList = document.getElementById('source-list');
+        const disclaimerBox = document.getElementById('disclaimer');
+
+        const DEMO_REPORT = "LH: 14.2 mIU/mL, FSH: 4.8 mIU/mL, Total Testosterone: 89 ng/dL, AMH: 7.5 ng/mL, DHEAS: 410 ug/dL, Fasting Glucose: 105 mg/dL, Fasting Insulin: 28 uIU/mL";
+        const DEMO_CONTEXT = "26-year-old female, dealing with unwanted facial hair and irregular periods (cycle length 45-60 days).";
+
+        btnDemo.addEventListener('click', () => {
+            inputReport.value = DEMO_REPORT;
+            inputContext.value = DEMO_CONTEXT;
+        });
+
+        btnAnalyze.addEventListener('click', async () => {
+            const reportText = inputReport.value.trim();
+            const patientContext = inputContext.value.trim();
+
+            if (!reportText) {
+                alert("Please provide some lab report data.");
+                return;
+            }
+
+            // UI State: Loading
+            placeholder.style.display = 'flex';
+            spinner.style.display = 'block';
+            statusText.innerText = "Analyzing biomarkers and searching guidelines...";
+            resultContent.style.display = 'none';
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        report_text: reportText,
+                        patient_context: patientContext 
+                    })
+                });
+
+                if (!response.ok) throw new Error("API call failed. Make sure the server is running on port 8001.");
+
+                const data = await response.json();
+
+                // Format Markdown headings to HTML basics
+                let narrativeHtml = data.narrative
+                    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+                narrativeBox.innerHTML = narrativeHtml;
+                disclaimerBox.innerText = data.disclaimer;
+                
+                sourceList.innerHTML = '';
+                const uniqueSources = Array.from(new Set(data.sources.map(s => s.source)));
+                uniqueSources.forEach(s => {
+                    const tag = document.createElement('span');
+                    tag.className = 'source-tag';
+                    tag.innerText = s;
+                    sourceList.appendChild(tag);
+                });
+
+                // UI State: Success
+                placeholder.style.display = 'none';
+                resultContent.style.display = 'block';
+
+            } catch (err) {
+                spinner.style.display = 'none';
+                statusText.innerText = "Error: " + err.message;
+                statusText.style.color = 'var(--accent)';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import API_HOST, API_PORT
 from src.api.routes.analyze import router as analyze_router
+from src.api.routes.chat import router as chat_router
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
@@ -56,6 +57,7 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 app.include_router(analyze_router)
+app.include_router(chat_router)
 
 
 @app.get("/", tags=["Health"])
