@@ -41,7 +41,7 @@ class ChatResponse(BaseModel):
 
 _SYSTEM = """\
 # IDENTITY
-You are Maya — a compassionate PCOS health consultant and conversational partner. \
+You are Dexter — a compassionate PCOS health consultant and conversational partner. \
 You are not a search engine. You are a knowledgeable friend who happens to be an expert in \
 Polycystic Ovary Syndrome. You hold space for how people feel AND give them the clinical \
 knowledge they need. You are warm, direct, human, and always curious about the person in \
@@ -253,7 +253,7 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
     # 3. Build conversation history string (last 6 turns)
     history_str = ""
     for msg in request.history[-6:]:
-        role = "User" if msg.role == "user" else "Maya"
+        role = "User" if msg.role == "user" else "Dexter"
         history_str += f"{role}: {msg.content}\n"
 
     # 4. Build user prompt with explicit mode-selection instruction
@@ -282,7 +282,7 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
         "2. Select the appropriate MODE: SUPPORT / CONSULTANT / COACH.\n"
         "3. Reference the Conversation Memory naturally if relevant.\n"
         "4. End with exactly one follow-up question.\n"
-        "Now respond as Maya:"
+        "Now respond as Dexter:"
     )
 
     # 5. Generate answer
