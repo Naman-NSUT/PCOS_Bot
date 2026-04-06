@@ -39,6 +39,11 @@ MAX_RETRIEVAL_PASSES = 2   # original + one rewrite pass
 API_HOST = "0.0.0.0"
 API_PORT = 8001
 
+# ── LangSmith ──────────────────────────────────────────────────────────────
+LANGSMITH_API_KEY      = os.getenv("LANGCHAIN_API_KEY", "")
+LANGSMITH_PROJECT      = os.getenv("LANGCHAIN_PROJECT", "pcos-bot")
+LANGSMITH_TRACING      = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+
 SAFETY_DISCLAIMER = (
     "⚠️ DISCLAIMER: This analysis is for informational purposes only and is NOT a "
     "medical diagnosis. PCOS can only be diagnosed by a qualified healthcare professional. "

@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config.settings import API_HOST, API_PORT
+from config.settings import API_HOST, API_PORT, LANGSMITH_API_KEY, LANGSMITH_PROJECT, LANGSMITH_TRACING
 from src.api.routes.analyze import router as analyze_router
 from src.api.routes.chat import router as chat_router
 
@@ -21,6 +21,17 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting PCOS Bot API…")
+
+    # ── LangSmith tracing ───────────────────────────────────────────────
+    if LANGSMITH_TRACING and LANGSMITH_API_KEY:
+        import os
+        os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+        os.environ.setdefault("LANGCHAIN_API_KEY",    LANGSMITH_API_KEY)
+        os.environ.setdefault("LANGCHAIN_PROJECT",    LANGSMITH_PROJECT)
+        logger.info("LangSmith tracing ENABLED → project='%s'", LANGSMITH_PROJECT)
+    else:
+        logger.info("LangSmith tracing DISABLED (set LANGCHAIN_TRACING_V2=true to enable)")
+
     try:
         from src.ingestion.vector_store import chunk_count
         n = chunk_count()
