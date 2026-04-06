@@ -70,7 +70,7 @@ class TestCRAGGraphIntegration:
         # Mock lazy Gemini client → RELEVANT grade
         mock_client = MagicMock()
         mock_response = MagicMock()
-        mock_response.text = '{"grade": "RELEVANT", "reason": "Directly addresses PCOS"}'
+        mock_response.text = '[{"grade": "RELEVANT", "reason": "Directly addresses PCOS"}]'
         mock_client.models.generate_content.return_value = mock_response
         mock_get_client.return_value = mock_client
 
