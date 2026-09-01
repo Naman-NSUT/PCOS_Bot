@@ -5,11 +5,19 @@ Every conversation is a multi-phase clinical consultation. This module owns
 the session dataclass, in-memory store, phase-transition logic, and all
 state mutation helpers.
 
-Phases:
-  1  First Contact   — learn name, build safety
-  2  Intake          — collect age, gender, reason for visit
-  3  Symptom Explore — focused clinical conversation
-  4  Guidance        — personalised advice and ongoing support
+Phases — shaped like a real consultation, not an interview:
+
+  1  OPENING     name + what brought them in. One or two turns, not three.
+  2  HISTORY     focused, bundled questions. CAPPED, so it cannot meander.
+  3  ASSESSMENT  Maya states her impression. Exactly one turn, and the only
+                 turn that deliberately ends WITHOUT a question.
+  4  PLAN        investigations to ask for, lifestyle measures, red flags.
+  5  ONGOING     pre-therapy, post-therapy, prevention, follow-up.
+
+The cap on HISTORY and the existence of ASSESSMENT are the whole design. A
+doctor gathers what they need, then tells you what they think. The previous
+model had no assessment turn at all, so the conversation could only ever be
+question after question.
 """
 from __future__ import annotations
 
@@ -18,6 +26,30 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+
+# ── Phases ────────────────────────────────────────────────────────────────
+
+PHASE_OPENING    = 1
+PHASE_HISTORY    = 2
+PHASE_ASSESSMENT = 3
+PHASE_PLAN       = 4
+PHASE_ONGOING    = 5
+
+PHASE_NAMES = {
+    PHASE_OPENING:    "opening",
+    PHASE_HISTORY:    "history",
+    PHASE_ASSESSMENT: "assessment",
+    PHASE_PLAN:       "plan",
+    PHASE_ONGOING:    "ongoing",
+}
+
+# History ends here whatever happens. A clinician does not keep taking history
+# until the patient runs out of things to say; they gather enough and move on.
+MAX_HISTORY_EXCHANGES = 6
+# ...and can end as early as this once there is enough to form an impression.
+MIN_HISTORY_EXCHANGES = 3
+MIN_SYMPTOMS_FOR_ASSESSMENT = 2
 
 
 # ── Data Models ───────────────────────────────────────────────────────────
@@ -58,6 +90,14 @@ class Session(BaseModel):
 
     symptom_list: List[str] = Field(default_factory=list)
     symptom_count: int = 0
+
+    # Therapy context — drives pre- and post-therapy support in PHASE_ONGOING.
+    treatments: List[str] = Field(default_factory=list)
+    treatment_stage: Optional[str] = None   # considering | ongoing | adverse | stopped
+
+    # Set once the assessment has been delivered, so it is never repeated and
+    # the conversation can move on to the plan.
+    assessment_given: bool = False
     emotional_state: Optional[str] = None
     last_topic: Optional[str] = None
     pending_question: Optional[str] = None
@@ -150,36 +190,67 @@ def pcos_threshold_reached(session: Session) -> bool:
 
 def check_phase_transition(session: Session) -> bool:
     """
-    Evaluate whether the session should advance to the next phase.
-    Returns True if a transition occurred.
+    Advance the consultation. Returns True if the phase changed.
 
-    Transition rules:
-      1 → 2 : name collected
-      2 → 3 : name + age_range + gender all present
-      3 → 4 : phase_exchange_count >= 4 AND symptom_count >= 1
-      4 → 4 : no further transitions
+      1 -> 2  a name, and any hint of why they came
+      2 -> 3  enough history to form an impression, OR the history cap is hit
+      3 -> 4  always — the assessment is exactly one turn
+      4 -> 5  the plan has been laid out
+
+    Note what is NOT here: no rule requires age and gender before moving on.
+    Demanding them cost two turns of interrogation before anyone talked about
+    health, and a returning user has them already. Ask when they matter.
     """
     old_phase = session.phase
 
-    if session.phase == 1:
-        if session.user_profile.name is not None:
-            session.phase = 2
+    if session.phase == PHASE_OPENING:
+        if session.user_profile.name is not None and session.phase_exchange_count >= 1:
+            session.phase = PHASE_HISTORY
             session.phase_exchange_count = 0
 
-    elif session.phase == 2:
-        if (session.user_profile.name is not None
-                and session.user_profile.age_range is not None
-                and session.user_profile.gender is not None):
-            session.phase = 3
+    elif session.phase == PHASE_HISTORY:
+        enough = (session.phase_exchange_count >= MIN_HISTORY_EXCHANGES
+                  and session.symptom_count >= MIN_SYMPTOMS_FOR_ASSESSMENT)
+        capped = session.phase_exchange_count >= MAX_HISTORY_EXCHANGES
+        if enough or capped:
+            session.phase = PHASE_ASSESSMENT
             session.phase_exchange_count = 0
 
-    elif session.phase == 3:
-        if session.phase_exchange_count >= 4 and session.symptom_count >= 1:
-            session.phase = 4
+    elif session.phase == PHASE_ASSESSMENT:
+        # One turn only. It is delivered on entry, so once the user has replied
+        # to it we are done and the plan follows.
+        if session.assessment_given:
+            session.phase = PHASE_PLAN
             session.phase_exchange_count = 0
 
-    # Phase 4 stays at 4 forever.
+    elif session.phase == PHASE_PLAN:
+        if session.phase_exchange_count >= 3:
+            session.phase = PHASE_ONGOING
+            session.phase_exchange_count = 0
+
     return session.phase != old_phase
+
+
+def update_treatments(session: Session, tags: List[str], stage: Optional[str]) -> None:
+    """Merge newly mentioned therapies and update where they are with them."""
+    for tag in tags:
+        if tag not in session.treatments:
+            session.treatments.append(tag)
+    if stage:
+        session.treatment_stage = stage
+
+
+def jump_to_ongoing(session: Session) -> None:
+    """
+    Skip straight to ongoing support.
+
+    Someone who opens with "I just started metformin, what should I expect?"
+    does not need a history and an assessment first — they have a specific
+    question and want it answered.
+    """
+    session.phase = PHASE_ONGOING
+    session.phase_exchange_count = 0
+    session.assessment_given = True
 
 
 def reset_store() -> None:

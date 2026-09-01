@@ -114,14 +114,15 @@ with st.sidebar:
     st.caption("AI-powered PCOS health consultation")
 
     # Phase indicator
-    phase_names = {1: "First Contact", 2: "Intake", 3: "Symptom Exploration", 4: "Guidance"}
+    phase_names = {1: "Getting to know you", 2: "History", 3: "Assessment",
+                   4: "Your plan", 5: "Ongoing support"}
     current_phase = st.session_state.phase
     st.markdown(f"**Current phase:** {phase_names.get(current_phase, 'Unknown')}")
 
     st.markdown("---")
 
     # Lab Report (only visible in Phase 3+)
-    if current_phase >= 3:
+    if current_phase >= 2:
         st.markdown("### 🧬 Lab Report")
         st.caption(
             "Photograph your results and Maya will read them alongside what "

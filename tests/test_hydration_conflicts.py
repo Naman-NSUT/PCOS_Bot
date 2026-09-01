@@ -126,8 +126,10 @@ class TestConflict4_GuidanceAccumulation:
         """
         greet = agent.get_greeting(user_id=veteran_user)
         s = get_session(greet["session_id"])
-        s.phase = 4
+        s.phase = 5
         s.phase_exchange_count = 6
+        s.assessment_given = True
+        s.covered_guidance_topics = []
         assert agent._check_closure_conditions(s, "tell me more") is None
 
 
@@ -203,7 +205,7 @@ class TestConflict7_NudgeAndCrag:
         greet = agent.get_greeting(user_id=veteran_user)
         s = get_session(greet["session_id"])
         s.total_exchanges = 15
-        s.phase = 3
+        s.phase = 2
         assert agent._should_nudge_doctor(s) is False
 
     def test_no_crag_retrieval_on_a_bare_greeting(self, veteran_user, reply):
@@ -220,9 +222,15 @@ class TestConflict8_PhaseEntry:
         assert "What's your name" not in greet["answer"]
         assert "Welcome back" in greet["answer"]
 
-    def test_returning_user_skips_intake(self, veteran_user):
+    def test_returning_user_skips_opening_but_still_takes_history(self, veteran_user):
+        """
+        Known users skip the introduction — but NOT the history. What is true
+        today is not what was true last time, and an assessment built on stale
+        symptoms would be worse than none.
+        """
+        from src.core.session import PHASE_HISTORY
         greet = agent.get_greeting(user_id=veteran_user)
-        assert greet["phase"] == 3
+        assert greet["phase"] == PHASE_HISTORY
 
     def test_first_time_user_unchanged(self):
         greet = agent.get_greeting(user_id="brand-new")

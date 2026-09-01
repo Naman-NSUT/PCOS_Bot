@@ -45,11 +45,19 @@ from src.core.session import (
     save_session,
     update_symptoms,
     update_topic_repeat,
+    update_treatments,
+    jump_to_ongoing,
+    PHASE_ASSESSMENT,
+    PHASE_HISTORY,
+    PHASE_ONGOING,
+    PHASE_PLAN,
 )
 from src.core.intent_detector import (
     detect_emotion,
     detect_resolved_symptoms,
     detect_symptoms,
+    detect_treatment_stage,
+    detect_treatments,
     extract_age,
     extract_gender,
     extract_name,
@@ -147,11 +155,12 @@ def _hydrate(session: Session) -> Optional[MemorySnapshot]:
     profile.gender = snapshot.gender
     # reason_for_visit stays None on purpose — see the docstring.
 
-    # Skip intake for someone we already know. Phase 1 and 2 exist only to
-    # collect name/age/gender, and check_phase_transition would clear them
-    # immediately anyway; jumping avoids re-asking questions we have answers to.
+    # Skip the opening for someone we already know — but land in HISTORY, not
+    # further on. They still need a history for THIS visit: what is true today
+    # is not what was true last time, and an assessment built on stale symptoms
+    # would be worse than no assessment.
     if profile.name:
-        session.phase = 3
+        session.phase = PHASE_HISTORY
         session.phase_exchange_count = 0
 
     logger.info(
@@ -264,13 +273,18 @@ def _check_closure_conditions(session: Session, user_message: str) -> Optional[s
         session.emotional_state = escalation  # store for prompt
         return "urgent"
 
-    # Only check closure in Phase 3+ (don't close during intake)
-    if session.phase < 3:
-        return None
-
-    # Condition 4: user signals done
+    # Condition 4: the user says they are done. This is checked BEFORE the
+    # assessment guard below — someone who wants to leave must always be able
+    # to, whatever stage the consultation has reached.
     if _detect_closing_intent(user_message):
         return "user_initiated"
+
+    # Everything below is AUTOMATIC closure, and none of it may fire before the
+    # assessment has been delivered. Ending a consultation on a timer, without
+    # ever telling the person what you think, is the worst thing this bot could
+    # do — and the previous rules allowed exactly that.
+    if session.phase < PHASE_PLAN and not session.assessment_given:
+        return None
 
     # Condition 1: exchange limit
     if session.total_exchanges >= 20:
@@ -280,10 +294,9 @@ def _check_closure_conditions(session: Session, user_message: str) -> Optional[s
     if session.topic_repeat_count >= 4:
         return "natural"
 
-    # Condition 3: guidance complete
-    if (session.phase == 4
+    # Condition 3: the plan has been laid out and the conversation has run on
+    if (session.phase >= PHASE_ONGOING
             and session.phase_exchange_count >= 5
-            and len(session.covered_guidance_topics) >= len(session.symptom_list)
             and len(session.covered_guidance_topics) >= 1):
         return "natural"
 
@@ -501,7 +514,7 @@ def _handle_closed_session(old_session: Session,
     same_owner = (old_session.user_id or None) == (new_session.user_id or None)
     if not new_session.user_profile.name and same_owner:
         new_session.user_profile = old_session.user_profile.model_copy()
-    new_session.phase = 3  # jump to symptom exploration
+    new_session.phase = PHASE_HISTORY   # they are known; take a fresh history
     new_session.phase_exchange_count = 0
 
     restart_msg = (
@@ -541,7 +554,11 @@ def _should_nudge_doctor(session: Session) -> bool:
     same 40-word "go see a doctor" paragraph in every consultation to someone who
     has already told us they saw one.
     """
-    if session.total_exchanges < 12 or session.doctor_nudge_sent or session.phase < 3:
+    # The plan phase refers them explicitly, so the nudge is only for
+    # conversations that stall before ever getting there.
+    if session.assessment_given or session.phase >= PHASE_PLAN:
+        return False
+    if session.total_exchanges < 12 or session.doctor_nudge_sent:
         return False
     snap = session.memory
     if snap is not None and getattr(snap, "doctor_visit_mentioned", False):
@@ -745,6 +762,24 @@ def process_turn(session_id: str, user_message: str,
     if new_tags:
         update_symptoms(session, new_tags)
 
+    # 6c. Therapy context. Someone who opens with "I just started metformin,
+    # what should I expect?" wants that answered — not a history and an
+    # assessment first — so a treatment question with a clear stage jumps
+    # straight to ongoing support.
+    treatments = detect_treatments(user_message)
+    stage = detect_treatment_stage(user_message)
+    if treatments or stage:
+        update_treatments(session, treatments, stage)
+        if treatments and stage and session.phase < PHASE_ONGOING:
+            # Whenever they raise a therapy AND where they are with it, they get
+            # treatment support — before the assessment (they came for this) or
+            # after it (the plan phase has no pre/post-therapy guidance).
+            logger.info(
+                "[agent] treatment question (%s / %s) — switching to ongoing support",
+                ",".join(treatments), stage,
+            )
+            jump_to_ongoing(session)
+
     # 7. Update topic repetition tracking
     current_topic = (
         new_tags[-1] if new_tags
@@ -775,6 +810,11 @@ def process_turn(session_id: str, user_message: str,
 
     # 12. Generate response
     answer = generate_response(system_prompt, user_prompt)
+
+    # 13a. The assessment is a single turn. Record that it has happened so the
+    # phase machine moves on to the plan and it is never delivered twice.
+    if session.phase == PHASE_ASSESSMENT:
+        session.assessment_given = True
 
     # 13. Check and update pcos_mentioned
     if not session.pcos_mentioned:
@@ -933,11 +973,12 @@ def _should_use_crag(session: Session, user_message: str = "") -> bool:
     Phase 1-2: never.  Phase 3: sometimes.  Phase 4: always.
     Also triggers for explicit test requests in Phase 3+.
     """
-    if session.phase <= 2:
+    if session.phase < PHASE_HISTORY:
         return False
-    if session.phase == 4:
+    # From the assessment onward every turn makes factual clinical claims, so
+    # every turn should be grounded in retrieved guidance.
+    if session.phase >= PHASE_ASSESSMENT:
         return True
-    # Phase 3: trigger for symptom context OR explicit test questions
     if _detect_test_request(user_message):
         return True
     return session.symptom_count >= 1

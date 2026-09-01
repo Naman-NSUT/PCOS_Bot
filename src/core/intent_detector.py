@@ -308,6 +308,114 @@ _SYMPTOM_KEYWORDS: dict[str, str] = {
 }
 
 
+# Literal keywords catch the obvious phrasings; these patterns catch how people
+# ACTUALLY talk. Measured against hand-labelled realistic phrasings, the keyword
+# list alone recalled 13% — it missed "periods all over the place" (plural),
+# "chin hair" (wrong word order), and "gained 12kg" (no literal "weight gain").
+#
+# That matters far beyond context quality: symptom_count gates the PCOS
+# disclosure rules, the lab-test rules, what reaches long-term memory, and when
+# the consultation moves to assessment. Low recall silently changes clinical
+# behaviour, so it is worth the extra vocabulary here.
+_SYMPTOM_PATTERNS: list[tuple[str, str]] = [
+    # ── irregular_periods ────────────────────────────────────────────────
+    (r"period['\u2019]?s?\b.{0,25}\b(irregular|all over|unpredictable|erratic|"
+     r"inconsistent|random|sporad)", "irregular_periods"),
+    (r"\b(irregular|missed|late|skipped?|infrequent|absent)\s+(period|cycle)", "irregular_periods"),
+    (r"\b(month|week)s?\s+(between|apart|without|since)\b.{0,20}period", "irregular_periods"),
+    (r"period.{0,20}\b(month|week)s?\s+(apart|between)", "irregular_periods"),
+    (r"(haven|have|has)\s*n[o']?t\s+had\s+(a\s+)?period", "irregular_periods"),
+    (r"\bcycle['\u2019]?s?\b.{0,25}\b(irregular|off|unpredictable|erratic|all over|"
+     r"weird|strange|messed)", "irregular_periods"),
+    (r"period['\u2019]?s?\s+come\b.{0,25}(whenever|random|as they)", "irregular_periods"),
+    (r"\b\d+\s*(-|to|or)\s*\d+\s*months?\s*(apart|between)?", "irregular_periods"),
+    (r"\b(amenorrh|oligomenorrh)", "irregular_periods"),
+
+    # ── hirsutism ────────────────────────────────────────────────────────
+    (r"\b(chin|facial|face|jaw|jawline|upper\s*lip|chest|back|neck|tummy|stomach)\s+hairs?",
+     "hirsutism"),
+    (r"hairs?\s+(on|around)\s+(my\s+)?(chin|face|jaw|lip|chest|back|neck|nipple)", "hirsutism"),
+    (r"\b(dark|coarse|thick|unwanted|excess|extra|stray|black)\s+hairs?\b", "hirsutism"),
+    (r"growing\s+a\s+(beard|moustache|mustache)", "hirsutism"),
+    (r"\b(shave|shaving|wax|waxing|pluck|plucking|thread|threading|epilat|laser)\b"
+     r".{0,20}(face|chin|lip|jaw)", "hirsutism"),
+    (r"\bhirsut", "hirsutism"),
+
+    # ── weight_gain ──────────────────────────────────────────────────────
+    (r"\b(gained|gaining|put\s+on|piled\s+on|packed\s+on)\b.{0,20}"
+     r"(weight|kg|kilo|pound|lb|stone)", "weight_gain"),
+    (r"\bweight\b.{0,25}\b(gain|up|crept|climbing|creeping|increas|piling)", "weight_gain"),
+    (r"\b(can|could|cannot)\s*n[o']?t\b.{0,15}\b(lose|shift|drop|budge)\b.{0,12}weight",
+     "weight_gain"),
+    (r"\b(struggl|hard|difficult|impossible|unable)\w*\b.{0,20}\b(lose|losing|shift)\b"
+     r".{0,12}weight", "weight_gain"),
+    (r"\bscale\b.{0,25}\b(up|climbing|going up|creeping)", "weight_gain"),
+    (r"nothing\b.{0,25}\b(shift|budge|move)\w*\b.{0,12}weight", "weight_gain"),
+    (r"\b(heavier|belly fat|bigger around)", "weight_gain"),
+
+    # ── fatigue ──────────────────────────────────────────────────────────
+    (r"\b(exhaust|shattered|knackered|drained|wiped\s*out|worn\s*out|running on empty)",
+     "fatigue"),
+    (r"\b(no|zero|low|little|hardly any)\s+energy", "fatigue"),
+    (r"\b(tired|fatigue)", "fatigue"),
+
+    # ── acne ─────────────────────────────────────────────────────────────
+    (r"\b(acne|pimple|spots?\b|breakout|breaking\s+out|blemish|cystic|zits?)", "acne"),
+    (r"\bskin\b.{0,25}\b(bad|terrible|awful|worse|horrible|flaring|angry)", "acne"),
+    (r"\b(oily|greasy)\s+skin", "acne"),
+
+    # ── hair_loss ────────────────────────────────────────────────────────
+    (r"\bhair\b.{0,30}\b(falling|coming\s+out|thinning|shedding|loss|receding|"
+     r"handful|clump)", "hair_loss"),
+    (r"\b(losing|shedding|thinning)\b.{0,15}hair", "hair_loss"),
+    (r"\bpart(ing|ed)?\b.{0,20}(wider|widening|bigger)", "hair_loss"),
+    (r"\bbald|scalp\s+show", "hair_loss"),
+
+    # ── fertility_concerns ───────────────────────────────────────────────
+    (r"trying\b.{0,20}\b(for a baby|to conceive|for a child|to get pregnant|to fall pregnant)",
+     "fertility_concerns"),
+    (r"\b(can'?t|cannot|could\s*n'?o?t|couldn'?t|unable)\b.{0,25}\b(get|getting|fall|falling|become|conceiv)\w*\s*(pregnant)?",
+     "fertility_concerns"),
+    (r"\b(struggl|trouble|difficult)\w*\b.{0,25}(conceiv|pregnan)", "fertility_concerns"),
+    (r"\b(fertility|infertil|ttc|ivf|iui|ovulat|conceiv)", "fertility_concerns"),
+
+    # ── mood_disturbance ─────────────────────────────────────────────────
+    (r"\bmood\s+(swing|change|dip)", "mood_disturbance"),
+    (r"\b(anxiet|anxious|depress|irritab|tearful|on edge)", "mood_disturbance"),
+    (r"feel\w*\b.{0,15}\b(low|down|flat|numb|awful|rubbish|miserable)\b", "mood_disturbance"),
+    (r"\b(crying|cry a lot|in tears)", "mood_disturbance"),
+
+    # ── acanthosis ───────────────────────────────────────────────────────
+    (r"\bdark\b.{0,20}\b(patch|patches|skin|neck|armpit|underarm|fold|groin)", "acanthosis"),
+    (r"\bvelvet|acanthosis", "acanthosis"),
+
+    # ── insulin_related ──────────────────────────────────────────────────
+    (r"\b(insulin|blood\s*sugar|glucose|pre.?diabet|metformin|hba1c)", "insulin_related"),
+    (r"\bcrav\w*\b.{0,15}(sugar|carb|sweet|chocolate|bread)", "insulin_related"),
+    (r"sugar\s+(crash|spike|low)", "insulin_related"),
+
+    # ── sleep_disturbance ────────────────────────────────────────────────
+    (r"\b(can'?t|cannot|couldn'?t)\s+sleep", "sleep_disturbance"),
+    (r"\b(insomnia|not sleeping|sleep\s+(problem|issue|trouble)|sleep\s*apnoea|"
+     r"sleep\s*apnea|snor)", "sleep_disturbance"),
+    (r"wake?\w*\s+up\b.{0,20}(tired|exhausted|unrefreshed)", "sleep_disturbance"),
+
+    # ── bloating ─────────────────────────────────────────────────────────
+    (r"\b(bloat|distend|puffy\s+(tummy|stomach|belly))", "bloating"),
+    (r"\b(stomach|tummy|gut|digest)\w*\b.{0,20}\b(issue|problem|trouble|off)", "bloating"),
+
+    # ── headaches ────────────────────────────────────────────────────────
+    (r"\b(headache|migraine|head\s+pain)", "headaches"),
+
+    # ── pelvic_pain ──────────────────────────────────────────────────────
+    (r"\b(pelvic\s+pain|cramp|ovary\s+pain|ovarian\s+pain|lower\s+abdominal)", "pelvic_pain"),
+]
+
+_COMPILED_SYMPTOM_PATTERNS = [
+    (re.compile(rx, re.IGNORECASE), tag) for rx, tag in _SYMPTOM_PATTERNS
+]
+
+
 def detect_symptoms(text: str) -> List[str]:
     """
     Scan user text for symptom keywords and return a deduplicated list
@@ -315,10 +423,50 @@ def detect_symptoms(text: str) -> List[str]:
     """
     lower = text.lower()
     found: List[str] = []
+
     for keyword, tag in _SYMPTOM_KEYWORDS.items():
         if keyword in lower and tag not in found:
             found.append(tag)
-    return found
+
+    for pattern, tag in _COMPILED_SYMPTOM_PATTERNS:
+        if tag not in found and pattern.search(text):
+            found.append(tag)
+
+    # Drop anything the person explicitly said they do NOT have. Tagging a
+    # denied symptom is worse than missing one: it inflates symptom_count, which
+    # gates the PCOS disclosure rules and the lab-test rules.
+    return [tag for tag in found if not _is_negated(tag, lower)]
+
+
+# Phrasings that assert a symptom is ABSENT or NORMAL, per tag.
+_NEGATION_PATTERNS: dict[str, str] = {
+    "irregular_periods": r"period\w*\b.{0,25}\b(regular|normal|fine|like clockwork|on time)"
+                         r"|regular\s+period",
+    "weight_gain":       r"\bno\b.{0,15}weight\s*(change|gain)|weight\b.{0,15}\b(stable|steady|same)",
+    "sleep_disturbance": r"sleep\w*\b.{0,20}\b(well|fine|great|ok|no problem)",
+    "acne":              r"skin\b.{0,20}\b(great|fine|clear|good|ok)",
+    "hair_loss":         r"hair\b.{0,25}\b(thick|fine|healthy|normal|no.{0,10}loss)",
+    "fatigue":           r"\b(plenty of|good|lots of)\s+energy|not\s+tired",
+}
+_COMPILED_NEGATIONS = {
+    tag: __import__("re").compile(rx, __import__("re").IGNORECASE)
+    for tag, rx in _NEGATION_PATTERNS.items()
+}
+
+
+def _is_negated(tag: str, lower_text: str) -> bool:
+    """True when the text asserts this symptom is absent or normal."""
+    rx = _COMPILED_NEGATIONS.get(tag)
+    if rx is None:
+        return False
+    # "irregular" contains "regular", so require the negation match to not be
+    # part of the word "irregular".
+    for m in rx.finditer(lower_text):
+        span = lower_text[max(0, m.start() - 2):m.end()]
+        if "irregular" in lower_text[max(0, m.start() - 12):m.end()]:
+            continue
+        return True
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -465,3 +613,82 @@ def detect_resolved_symptoms(text: str) -> List[str]:
                 resolved.append(tag)
 
     return resolved
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TREATMENT DETECTION  (drives pre- and post-therapy support)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Named therapy → internal tag. Detecting WHICH therapy matters because the
+# questions worth asking before starting, and the things worth watching after,
+# are completely different between them.
+_TREATMENT_KEYWORDS: dict[str, str] = {
+    "metformin": "metformin", "glucophage": "metformin",
+    "inositol": "inositol", "myo-inositol": "inositol", "myoinositol": "inositol",
+    "spironolactone": "spironolactone", "spiro": "spironolactone", "aldactone": "spironolactone",
+    "birth control": "combined_pill", "the pill": "combined_pill", "ocp": "combined_pill",
+    "oral contraceptive": "combined_pill", "combined pill": "combined_pill",
+    "yasmin": "combined_pill", "diane": "combined_pill", "marvelon": "combined_pill",
+    "letrozole": "ovulation_induction", "femara": "ovulation_induction",
+    "clomid": "ovulation_induction", "clomiphene": "ovulation_induction",
+    "progesterone": "progestin", "progestin": "progestin", "medroxyprogesterone": "progestin",
+    "ozempic": "glp1", "semaglutide": "glp1", "wegovy": "glp1",
+    "mounjaro": "glp1", "tirzepatide": "glp1",
+    "ivf": "fertility_treatment", "iui": "fertility_treatment",
+}
+
+# Where they are relative to that therapy. Ordered by specificity — "stopped"
+# and "side effects" must win over the vaguer "on it", because they change what
+# is useful to say completely.
+_TREATMENT_STAGE_CUES: list[tuple[str, list[str]]] = [
+    ("stopped", [
+        "stopped taking", "came off", "went off", "quit taking", "gave up on",
+        "stopped it", "had to stop", "discontinued", "stopped the", "stopped my",
+        "no longer taking", "no longer on", "off the pill", "not taking it",
+    ]),
+    ("adverse", [
+        "side effect", "side-effect", "making me sick", "makes me sick",
+        "nauseous", "not agreeing with", "reacting badly", "can't tolerate",
+        "cant tolerate", "upset stomach", "feeling worse since",
+    ]),
+    ("considering", [
+        "thinking about", "considering", "should i take", "should i start",
+        "offered me", "suggested i take", "recommended i start", "want to try",
+        "is it worth", "prescribed me", "about to start", "starting next",
+        "going to start", "doctor wants me on", "put me on",
+    ]),
+    ("ongoing", [
+        "i take", "i'm taking", "im taking", "i am taking", "been taking",
+        "i'm on", "im on", "i am on", "been on", "started taking", "started on",
+        "currently taking", "months on", "weeks on",
+    ]),
+]
+
+
+def detect_treatments(text: str) -> List[str]:
+    """Named therapies mentioned in the message, as internal tags."""
+    lower = text.lower()
+    found: List[str] = []
+    for keyword, tag in _TREATMENT_KEYWORDS.items():
+        if keyword in lower and tag not in found:
+            found.append(tag)
+    return found
+
+
+def detect_treatment_stage(text: str) -> Optional[str]:
+    """
+    Where the person is relative to a therapy:
+      "considering" -> hasn't started; wants to know if they should
+      "ongoing"     -> currently on it
+      "adverse"     -> on it and it is not going well
+      "stopped"     -> no longer on it
+
+    Returns None when no therapy stage is expressed. Checked in priority order:
+    "I stopped metformin, the side effects were awful" is a STOPPED situation,
+    not an ongoing one.
+    """
+    lower = text.lower()
+    for stage, cues in _TREATMENT_STAGE_CUES:
+        if any(cue in lower for cue in cues):
+            return stage
+    return None
