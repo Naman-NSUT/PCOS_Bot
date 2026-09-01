@@ -32,6 +32,23 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("LangSmith tracing DISABLED (set LANGCHAIN_TRACING_V2=true to enable)")
 
+    # ── Long-term memory store ──────────────────────────────────────────
+    try:
+        from config.settings import MEMORY_ENABLED, _EPHEMERAL_SECRET
+        if MEMORY_ENABLED:
+            from src.memory.store import init_store
+            init_store()
+            if _EPHEMERAL_SECRET:
+                logger.warning(
+                    "APP_SECRET_KEY not set — user tokens are signed with a random "
+                    "per-boot key, so every user looks new after a restart. Set "
+                    "APP_SECRET_KEY in .env to make memory durable."
+                )
+        else:
+            logger.info("Long-term memory DISABLED (MEMORY_ENABLED=false)")
+    except Exception as exc:
+        logger.error("Memory store init failed — continuing without memory: %s", exc)
+
     try:
         from src.ingestion.vector_store import chunk_count
         n = chunk_count()
@@ -53,13 +70,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="PCOS Bot — Diagnostic Report Analyser",
+    title="PCOS Bot — Maya Health Consultation",
     description=(
-        "CRAG + LangGraph pipeline that parses lab reports, applies rule-based PCOS "
-        "indicator flags, retrieves clinical guidelines, and generates an evidence-grounded "
-        "narrative via Gemini 1.5 Pro. Not a diagnostic tool."
+        "Phase-driven PCOS health consultation powered by CRAG + LangGraph. "
+        "Maya conducts a real clinical-style conversation: intake → symptom exploration → "
+        "personalised guidance, all grounded in evidence-based PCOS guidelines."
     ),
-    version="0.2.0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
@@ -73,7 +90,7 @@ app.include_router(chat_router)
 
 @app.get("/", tags=["Health"])
 async def root():
-    return {"service": "PCOS Bot Diagnostic API", "version": "0.2.0",
+    return {"service": "PCOS Bot Diagnostic API", "version": "1.0.0",
             "endpoints": {"analyze_report": "POST /analyze-report", "docs": "/docs"}}
 
 
