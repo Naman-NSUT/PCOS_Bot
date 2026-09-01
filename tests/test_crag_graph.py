@@ -1,7 +1,7 @@
 """
 tests/test_crag_graph.py
 Tests for the CRAG LangGraph graph logic (conditional edges, state flow).
-ChromaDB and Gemini calls are fully mocked.
+ChromaDB and LLM calls are fully mocked.
 """
 import pytest
 from unittest.mock import patch, MagicMock
@@ -67,11 +67,15 @@ class TestCRAGGraphIntegration:
         ]
         mock_get_retriever.return_value = mock_retriever
 
-        # Mock lazy Gemini client → RELEVANT grade
+        # Mock lazy chat client → RELEVANT grade.
+        # Mirrors the LangChain interface: client.invoke(messages).content,
+        # and the {"grades": [...]} object shape that JSON mode requires.
         mock_client = MagicMock()
         mock_response = MagicMock()
-        mock_response.text = '[{"grade": "RELEVANT", "reason": "Directly addresses PCOS"}]'
-        mock_client.models.generate_content.return_value = mock_response
+        mock_response.content = (
+            '{"grades": [{"grade": "RELEVANT", "reason": "Directly addresses PCOS"}]}'
+        )
+        mock_client.invoke.return_value = mock_response
         mock_get_client.return_value = mock_client
 
         result = run_crag("PCOS hormone levels")

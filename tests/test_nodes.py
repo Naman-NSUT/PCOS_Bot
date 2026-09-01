@@ -1,7 +1,7 @@
 """
 tests/test_nodes.py
 Unit tests for node functions (parse_report, flag_indicators, refine, assemble).
-Zero Gemini API calls — purely local logic.
+Zero LLM API calls — purely local logic.
 """
 import pytest
 from langchain_core.documents import Document

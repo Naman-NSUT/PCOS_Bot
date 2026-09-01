@@ -8,10 +8,10 @@ import logging
 from typing import Any, Dict
 
 from functools import lru_cache
-from google import genai
-from google.genai import types
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 
-from config.settings import GEMINI_API_KEY, GRADER_MODEL
+from config.settings import GRADER_MODEL, OPENAI_API_KEY, OPENAI_BASE_URL
 from src.state.crag_state import CRAGState
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,16 @@ logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=1)
 def _get_client():
-    return genai.Client(api_key=GEMINI_API_KEY)
+    if not OPENAI_API_KEY:
+        raise EnvironmentError(
+            "OPENAI_API_KEY not set. Copy .env.example to .env and fill it in."
+        )
+    return ChatOpenAI(
+        model=GRADER_MODEL,
+        temperature=0.1,
+        api_key=OPENAI_API_KEY,
+        base_url=OPENAI_BASE_URL,
+    )
 
 _SYSTEM = """\
 You are a medical search query optimiser for a PCOS clinical knowledge base.
@@ -51,12 +60,12 @@ def rewrite_node(state: CRAGState) -> Dict[str, Any]:
     )
 
     try:
-        resp = _get_client().models.generate_content(
-            model=GRADER_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(system_instruction=_SYSTEM),
-        )
-        rewritten = resp.text.strip()
+        messages = [
+            SystemMessage(content=_SYSTEM),
+            HumanMessage(content=prompt)
+        ]
+        resp = _get_client().invoke(messages)
+        rewritten = resp.content.strip()
     except Exception as exc:
         logger.warning("[rewrite] failed: %s — keeping original.", exc)
         rewritten = original

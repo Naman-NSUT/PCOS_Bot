@@ -42,9 +42,11 @@ class AnalyzeResponse(BaseModel):
              description=(
                  "Parses biomarker values, applies rule-based PCOS indicator flags, "
                  "retrieves relevant clinical guidelines via the CRAG LangGraph, and "
-                 "generates an evidence-grounded narrative with Gemini. Not a diagnostic tool."
+                 "generates an evidence-grounded narrative with an LLM. Not a diagnostic tool."
              ))
-async def analyze_report_endpoint(request: AnalyzeRequest) -> AnalyzeResponse:
+def analyze_report_endpoint(request: AnalyzeRequest) -> AnalyzeResponse:
+    # Plain `def`, not `async def`: run_analysis is fully synchronous and would
+    # block the event loop for every other request if run directly on it.
     try:
         state = run_analysis(
             report_text=request.report_text,
