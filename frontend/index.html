@@ -276,7 +276,7 @@
     </div>
 
     <script>
-        const API_URL = "http://localhost:8001/analyze-report";
+        const API_URL = "http://localhost:8003/analyze-report";
 
         const btnAnalyze = document.getElementById('btn-analyze');
         const btnDemo = document.getElementById('btn-demo');
@@ -323,7 +323,7 @@
                     })
                 });
 
-                if (!response.ok) throw new Error("API call failed. Make sure the server is running on port 8001.");
+                if (!response.ok) throw new Error("API call failed. Make sure the server is running on port 8003.");
 
                 const data = await response.json();
 

@@ -44,3 +44,5 @@ Thumbs.db
 *.log
 logs/
 api.log
+memory.db
+*.db

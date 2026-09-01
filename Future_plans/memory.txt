@@ -1,0 +1,38 @@
+users table
+- user_id
+- name
+- age_range  
+- gender
+- created_at
+- last_active
+
+user_profile table
+- user_id
+- symptom_list[]          ← accumulated across ALL conversations
+- confirmed_symptom_count
+- dominant_concerns[]     ← what they keep coming back to
+- emotional_pattern       ← how they typically present emotionally
+- doctor_visited          ← have they mentioned seeing a doctor
+- tests_suggested[]       ← what tests have already been recommended
+- phase_reached           ← furthest phase they have completed
+- preferred_name          ← what they like to be called
+
+conversations table
+- conversation_id
+- user_id
+- started_at
+- ended_at
+- phase_reached
+- summary                 ← auto-generated after each session
+- new_symptoms_mentioned[]
+- topics_covered[]
+
+messages table
+- message_id
+- conversation_id
+- user_id
+- role                    ← "user" or "assistant"
+- content
+- timestamp
+- intent_detected
+- emotion_detected
