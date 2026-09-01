@@ -35,6 +35,11 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")  # 1536-dim
 GRADER_MODEL    = os.getenv("GRADER_MODEL",    "openai/gpt-4o-mini")   # per-chunk grading
 GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "openai/gpt-4o-mini")   # narrative + conversation
+VISION_MODEL    = os.getenv("VISION_MODEL",    "openai/gpt-4o-mini")   # report photo OCR only
+
+# Report photos are token-expensive (~25k input tokens at full resolution),
+# so images are downscaled before sending. See src/nodes/transcribe_report.py.
+MAX_REPORT_IMAGES = int(os.getenv("MAX_REPORT_IMAGES", "6"))
 
 # Embedding dimensionality of EMBEDDING_MODEL.  Changing the embedding model
 # changes this, and the Chroma collection must be re-ingested from scratch —

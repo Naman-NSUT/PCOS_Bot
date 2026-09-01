@@ -21,10 +21,11 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from src.agents.conversation_agent import get_greeting, process_turn
+from src.agents.conversation_agent import get_greeting, process_turn, record_report_turn
+from config.settings import MAX_REPORT_IMAGES
 from src.core.identity import mint_user_token, sign_user_id, verify_user_token
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,62 @@ def chat_endpoint(request: ChatRequest) -> ChatResponse:
 
     result = process_turn(request.session_id, request.query, user_id=user_id)
     return ChatResponse(**result, user_token=out_token)
+
+
+class ReportResponse(BaseModel):
+    answer: str
+    sources: list
+    session_id: str
+    phase: int
+    user_token: str
+    ok: bool
+    parsed_values: dict = {}
+    diagnostic_flags: dict = {}
+    concordance: dict = {}
+    unreadable: list = []
+
+
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+
+
+@router.post("/report", response_model=ReportResponse,
+             summary="Analyse photographs of a lab report inside a consultation")
+def analyse_report_endpoint(
+    files: list[UploadFile] = File(..., description="One or more report photos"),
+    session_id: Optional[str] = Form(None),
+    user_token: Optional[str] = Form(None),
+) -> ReportResponse:
+    """
+    Send report photos mid-consultation.
+
+    The verdict draws on BOTH the bloodwork and what the person already said —
+    that combination is the point, because no blood test establishes irregular
+    ovulation and the conversation cannot measure testosterone.
+
+    Plain `def`, not `async def`: the pipeline is synchronous and would otherwise
+    block the event loop for every other request.
+    """
+    user_id, out_token, _ = _resolve_identity(user_token)
+
+    images: list[bytes] = []
+    for f in files[:MAX_REPORT_IMAGES]:
+        if f.content_type and f.content_type.lower() not in ALLOWED_TYPES:
+            raise HTTPException(
+                status_code=415,
+                detail=f"Unsupported file type {f.content_type}. Send a JPEG, PNG or WebP photo.",
+            )
+        blob = f.file.read(MAX_UPLOAD_BYTES + 1)
+        if len(blob) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Each image must be under 8 MB.")
+        if blob:
+            images.append(blob)
+
+    if not images:
+        raise HTTPException(status_code=400, detail="No readable image was uploaded.")
+
+    result = record_report_turn(session_id, images, user_id=user_id)
+    return ReportResponse(**result, user_token=out_token)
 
 
 @router.delete("/memory", summary="Erase everything remembered about a user")

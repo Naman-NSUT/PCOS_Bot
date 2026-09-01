@@ -122,24 +122,46 @@ with st.sidebar:
 
     # Lab Report (only visible in Phase 3+)
     if current_phase >= 3:
-        st.markdown("### 🧬 Lab Report (Optional)")
-        st.caption("Attach lab values for more personalised guidance.")
-        report_text = st.text_area(
-            "Paste biomarker values", height=150,
-            placeholder="LH: 12.4 mIU/mL\nFSH: 5.1 mIU/mL\nTestosterone: 85 ng/dL\n..."
+        st.markdown("### 🧬 Lab Report")
+        st.caption(
+            "Photograph your results and Maya will read them alongside what "
+            "you've told her. Send each page separately for a multi-page report."
         )
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Attach", use_container_width=True):
-                if report_text.strip():
-                    st.session_state.report_context = report_text.strip()
-                    st.success("✅ Report attached")
-                else:
-                    st.warning("Enter some values first.")
-        with col2:
-            if st.button("Clear Report", use_container_width=True):
-                st.session_state.report_context = None
-                st.info("Report removed.")
+        shots = st.file_uploader(
+            "Report photos", type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True, label_visibility="collapsed",
+        )
+        if shots:
+            st.caption(f"{len(shots)} page(s) ready.")
+        if st.button("Analyse report", use_container_width=True, disabled=not shots):
+            with st.spinner("Reading your report…"):
+                try:
+                    files = [("files", (s.name, s.getvalue(), s.type)) for s in shots]
+                    data = {"session_id": st.session_state.session_id or "",
+                            "user_token": st.session_state.user_token or ""}
+                    r = requests.post(f"{API_URL}/chat/report", files=files,
+                                      data=data, timeout=600)
+                    if r.ok:
+                        d = r.json()
+                        _remember_token(d.get("user_token"))
+                        st.session_state.session_id = d.get("session_id", st.session_state.session_id)
+                        st.session_state.phase = d.get("phase", st.session_state.phase)
+                        st.session_state.messages.append({
+                            "role": "user",
+                            "content": f"📄 Sent {len(shots)} report page(s)",
+                            "sources": [],
+                        })
+                        st.session_state.messages.append({
+                            "role": "assistant", "content": d["answer"],
+                            "sources": d.get("sources", []),
+                            "concordance": d.get("concordance"),
+                            "parsed_values": d.get("parsed_values"),
+                        })
+                        st.rerun()
+                    else:
+                        st.error(r.json().get("detail", "Could not analyse that report."))
+                except Exception:
+                    st.error(f"Could not reach Maya at {API_URL}.")
 
         if st.session_state.report_context:
             st.success("📎 Lab report attached.")
@@ -217,10 +239,36 @@ if not st.session_state.initialized:
     _initialize_session()
 
 # ── Chat History ──────────────────────────────────────────────────────────
+def _render_report_extras(msg):
+    """Show the deterministic panel behind a report verdict, on demand."""
+    parsed = msg.get("parsed_values")
+    if not parsed:
+        return
+    with st.expander("Values Maya read from your report"):
+        st.caption(
+            "Read from the photo, then classified against 2023-guideline "
+            "reference ranges by rules — not by the model."
+        )
+        st.dataframe(
+            [{"Marker": k, "Value": v["value"], "Unit": v["unit"], "Status": v["status"]}
+             for k, v in parsed.items()],
+            use_container_width=True, hide_index=True,
+        )
+        conc = msg.get("concordance") or {}
+        if conc.get("corroborated"):
+            st.caption("Confirmed by both your report and what you told Maya: "
+                       + ", ".join(c.replace("_", " ") for c in conc["corroborated"]))
+        if conc.get("not_assessable"):
+            st.caption("Cannot be assessed from these results: "
+                       + ", ".join(c.replace("_", " ") for c in conc["not_assessable"]))
+
+
 for msg in st.session_state.messages:
     avatar = "🌸" if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
+        if msg["role"] == "assistant":
+            _render_report_extras(msg)
         if msg["role"] == "assistant" and msg.get("sources"):
             unique_src = list(set(s["source"] for s in msg["sources"]))
             badges = "".join(f'<span class="source-badge">{s}</span>' for s in unique_src[:5])

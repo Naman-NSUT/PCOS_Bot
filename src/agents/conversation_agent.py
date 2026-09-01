@@ -807,6 +807,68 @@ def process_turn(session_id: str, user_message: str,
     }
 
 
+def record_report_turn(session_id: Optional[str], images, 
+                       user_id: Optional[str] = None) -> dict:
+    """
+    Handle report photographs as a turn in the consultation.
+
+    Delegates the analysis to the report subagent, then records the exchange in
+    the session so the rest of the conversation can refer back to it — "you
+    mentioned your testosterone came back high" only works if the verdict is part
+    of the transcript.
+
+    Ownership is checked exactly as it is for a text turn: a session_id is not a
+    credential, and uploading into someone else's consultation must not be
+    possible.
+    """
+    from src.agents.report_agent import analyse_report
+
+    session = get_session(session_id) if session_id else None
+    if session is not None and session.user_id and session.user_id != user_id:
+        logger.warning("[agent] rejected report upload — session owner mismatch")
+        session = None
+    if session is not None and session.is_closed:
+        session = None
+
+    if session is None:
+        session = create_session(user_id=user_id)
+        _hydrate(session)
+
+    add_turn(session, "user", "[sent photographs of a lab report]")
+
+    result = analyse_report(images, session=session)
+
+    answer = result["verdict"]
+    if result.get("ok") and result.get("disclaimer"):
+        answer = f"{answer}\n\n{result['disclaimer']}"
+
+    add_turn(session, "assistant", answer)
+
+    # A report is substantive clinical content: move past intake if we are still
+    # there, so the follow-up conversation is at the right depth.
+    if result.get("ok") and session.phase < 3:
+        session.phase = 3
+        session.phase_exchange_count = 0
+
+    session.last_topic = "lab report"
+    session.pending_question = "Does any of that raise a question for you?"
+
+    save_session(session)
+    _persist_memory(session, answer=answer)
+
+    return {
+        "answer": answer,
+        "sources": result.get("sources", []),
+        "session_id": session.session_id,
+        "phase": session.phase,
+        "ok": bool(result.get("ok")),
+        "parsed_values": result.get("parsed_values", {}),
+        "diagnostic_flags": result.get("diagnostic_flags", {}),
+        "concordance": result.get("concordance", {}),
+        "unreadable": result.get("unreadable", []),
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # INTERNAL HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
