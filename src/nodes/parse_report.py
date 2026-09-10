@@ -70,6 +70,58 @@ _REFS: Dict[str, tuple] = {
 }
 
 
+# The unit each reference range in _REFS is expressed in. A value in ANY other
+# unit cannot be compared against it.
+#
+# This was the most dangerous gap in the pipeline: _BIOMARKERS whitelists SI
+# units (nmol/L, pmol/L, mIU/L, mmol/L) while _REFS holds conventional-unit
+# ranges, so an entirely normal SI-unit panel — the standard in the UK, EU and
+# much of India — scored as multiple CRITICAL results. Testosterone 1.8 nmol/L
+# (normal) was read as critical_low against a 6-82 ng/dL range; prolactin
+# 340 mIU/L (normal) as critical_high against 3-25 ng/mL.
+_REF_UNITS: Dict[str, str] = {
+    "LH": "miu/ml", "FSH": "miu/ml", "AMH": "ng/ml",
+    "Total Testosterone": "ng/dl", "Free Testosterone": "pg/ml",
+    "DHEAS": "ug/dl", "Prolactin": "ng/ml", "TSH": "uiu/ml",
+    "Fasting Glucose": "mg/dl", "Fasting Insulin": "uiu/ml",
+    "Total Cholesterol": "mg/dl", "HDL": "mg/dl", "LDL": "mg/dl",
+    "Triglycerides": "mg/dl", "Waist Circumference": "cm",
+    # Dimensionless — any or no unit is fine.
+    "HOMA-IR": "", "BMI": "", "LH/FSH Ratio": "",
+}
+
+# Units that mean the same thing as the reference unit.
+_UNIT_SYNONYMS = {
+    "miu/ml": {"miu/ml", "miu/l", "iu/l", "miu/ml"},
+    "uiu/ml": {"uiu/ml", "µiu/ml", "miu/l", "uiu/l"},
+    "ng/ml":  {"ng/ml", "ug/l", "µg/l"},
+    "ng/dl":  {"ng/dl"},
+    "pg/ml":  {"pg/ml", "ng/l"},
+    "ug/dl":  {"ug/dl", "µg/dl"},
+    "mg/dl":  {"mg/dl"},
+    "cm":     {"cm"},
+}
+
+
+def _unit_matches(name: str, unit: str) -> bool:
+    """
+    True when `unit` can be compared against this biomarker's reference range.
+
+    An UNKNOWN unit (empty string) is accepted — many reports omit it and the
+    existing regex often fails to capture one — but a unit that is present and
+    demonstrably different is not.
+    """
+    expected = _REF_UNITS.get(name)
+    if expected is None or expected == "":
+        return True
+    u = (unit or "").strip().lower().replace("μ", "µ")
+    if not u:
+        return True                       # not stated; fall back to the range
+    if u == expected:
+        return True
+    return u in _UNIT_SYNONYMS.get(expected, {expected})
+
+
 def _classify(name: str, value: float) -> str:
     ref = _REFS.get(name)
     if not ref:
@@ -88,11 +140,17 @@ def _build_pattern(aliases, units) -> re.Pattern:
     unit_grp = rf"(?:\s*(?:{unit_re}))?" if unit_re else ""
     return re.compile(
         rf"(?i)(?:{alias_re})"      # name
+        rf"(?![0-9])"               # ...not immediately followed by a digit
         rf"(?:\s*\([^)]+\))?"       # optional parenthesised abbreviation
         rf"\s*[:\-=]?\s*"           # separator
         rf"{_NUMBER}"               # value
         rf"{unit_grp}",             # unit
     )
+    # The (?![0-9]) guard matters more than it looks. The Free Testosterone
+    # alias "Free T" otherwise matches "Free T3: 3.1" — consuming the "3" of
+    # "T3" as the start of the value — so a thyroid FT3 result was parsed as a
+    # free testosterone level and raised biochemical hyperandrogenism, the
+    # strongest Rotterdam lab criterion, from a normal thyroid panel.
 
 
 _COMPILED = [(name, units, _build_pattern(aliases, units)) for name, aliases, units in _BIOMARKERS]
@@ -111,7 +169,17 @@ def parse_report_node(state: AnalysisState) -> Dict[str, Any]:
             value = float(m.group(1))
             raw   = m.group(0)
             unit  = next((u for u in units if u and u.lower() in raw.lower()), "")
-            parsed[name] = {"value": value, "unit": unit, "status": _classify(name, value)}
+            if _unit_matches(name, unit):
+                status = _classify(name, value)
+            else:
+                # Comparing this number to the range would be meaningless, so it
+                # is recorded but NOT classified — and never flagged.
+                status = "unit_mismatch"
+                logger.warning(
+                    "[parse] %s reported in %r but the reference range is in %r "
+                    "— not classified", name, unit, _REF_UNITS.get(name),
+                )
+            parsed[name] = {"value": value, "unit": unit, "status": status}
 
     # Derived: LH/FSH
     if "LH" in parsed and "FSH" in parsed and parsed["FSH"]["value"] > 0:

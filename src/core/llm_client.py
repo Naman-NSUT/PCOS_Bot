@@ -269,6 +269,20 @@ def build_system_prompt(session: Session) -> str:
                 f"to a hormonal pattern called PCOS. Not a diagnosis at all, just something worth "
                 f"exploring with your doctor.' After this, do not repeat it every turn.\n"
             )
+    elif session.symptom_count <= 4 and session.pcos_mentioned:
+        # THE HOLE. Previously this state fell through every branch and
+        # pcos_rules stayed empty — the model got NO guidance on whether it may
+        # say "PCOS" for every turn after it first named it, at 3-4 symptoms.
+        # A phase-3 branch was added earlier but left phases 1, 2, 4 and 5
+        # uncovered.
+        pcos_rules = (
+            "\nPCOS MENTION RULE:\n"
+            "You have already raised PCOS with this person in THIS conversation. "
+            "Do not re-introduce it as though it were news and do not repeat the "
+            "first-time explanation. You may refer to it when relevant. It is "
+            "still NOT a diagnosis — only a clinician with an examination, "
+            "bloodwork and imaging can determine that.\n"
+        )
     elif session.symptom_count >= 5:
         pcos_rules = (
             "\nPCOS MENTION RULE:\n"

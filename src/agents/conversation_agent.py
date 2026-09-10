@@ -208,6 +208,27 @@ _URGENT_PERIOD_PATTERNS = [
     ),
 ]
 
+# Substring matching missed the commonest phrasings: "kill myself" does not
+# match "killing myself", and "hurting myself" does not match "hurt myself".
+# A missed disclosure here is the highest-consequence failure this system has,
+# so these are patterns covering tense and person, and the list errs firmly
+# toward over-triggering.
+_URGENT_EMOTIONAL_CRISIS_PATTERNS = [
+    re.compile(r"\bsuicid", re.IGNORECASE),
+    re.compile(r"\b(kill|killing|hurt|hurting|harm|harming|cut|cutting)\s+(myself|my\s?self)",
+               re.IGNORECASE),
+    re.compile(r"\bend(ing)?\s+(my|it)\s+(life|all)\b", re.IGNORECASE),
+    re.compile(r"\b(want|wanted|wanting|wish|thinking about|thought about)\b.{0,25}"
+               r"\b(to\s+)?(die|be dead|not (be here|exist|wake up))", re.IGNORECASE),
+    re.compile(r"\b(don'?t|do not|didn'?t)\s+want\s+to\s+(live|be here|wake up|exist)",
+               re.IGNORECASE),
+    re.compile(r"\bself[\s-]?harm", re.IGNORECASE),
+    re.compile(r"\b(better off|everyone.{0,15}better)\s+(without|dead|if i)", re.IGNORECASE),
+    re.compile(r"\bno (point|reason) (in )?(going on|living|being here)", re.IGNORECASE),
+    re.compile(r"\bwant\s+it\s+all\s+to\s+(stop|end)\b", re.IGNORECASE),
+]
+
+# Kept for the substring pass; the patterns above are the real net.
 _URGENT_EMOTIONAL_CRISIS = [
     "suicid", "kill myself", "end my life", "want to die",
     "don't want to live", "dont want to live",
@@ -233,9 +254,12 @@ def _detect_urgent_escalation(text: str) -> Optional[str]:
     """
     lower = text.lower()
 
-    # Emotional crisis — check first, highest priority
+    # Emotional crisis — checked first, highest priority.
     for kw in _URGENT_EMOTIONAL_CRISIS:
         if kw in lower:
+            return "emotional_crisis"
+    for pattern in _URGENT_EMOTIONAL_CRISIS_PATTERNS:
+        if pattern.search(text):
             return "emotional_crisis"
 
     # Severe physical symptoms
@@ -697,6 +721,20 @@ def process_turn(session_id: str, user_message: str,
         session = create_session(user_id=user_id)
         _hydrate(session)
     elif session.is_closed:
+        # Escalation is checked BEFORE the restart path. Returning the
+        # welcome-back string first meant a crisis message sent into a closed
+        # session was never escalated — the person got "Would you like to pick
+        # up where we left off?" in reply to a self-harm disclosure.
+        if _detect_urgent_escalation(user_message):
+            session.emotional_state = _detect_urgent_escalation(user_message)
+            answer = _build_urgent_response(session)
+            add_turn(session, "user", user_message)
+            add_turn(session, "assistant", answer)
+            save_session(session)
+            return {
+                "answer": answer, "sources": [],
+                "session_id": session.session_id, "phase": session.phase,
+            }
         return _handle_closed_session(session, user_id=user_id)
 
     # Late-binding: a client that only learns its user_id mid-conversation still

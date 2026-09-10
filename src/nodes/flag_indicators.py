@@ -21,10 +21,20 @@ def flag_indicators_node(state: AnalysisState) -> Dict[str, Any]:
     bm: Dict[str, Any] = state.get("parsed_values", {})
 
     def val(name: str):
-        return bm[name]["value"] if name in bm else None
+        if name not in bm or bm[name].get("status") == "unit_mismatch":
+            return None
+        return bm[name]["value"]
 
     def status(name: str) -> str:
+        """
+        A value whose unit does not match its reference range is reported as
+        "unit_mismatch" and must never raise a flag — comparing it to the range
+        is meaningless, so it is treated as if the marker were absent.
+        """
         return bm[name]["status"] if name in bm else "normal"
+
+    def usable(name: str) -> bool:
+        return name in bm and bm[name].get("status") != "unit_mismatch"
 
     flags: Dict[str, Any] = {
         "hyperandrogenism":             False,

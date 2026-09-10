@@ -18,6 +18,7 @@ import base64
 import io
 import json
 import logging
+import re
 from functools import lru_cache
 from typing import Any, Dict, List, Sequence
 
@@ -201,6 +202,20 @@ def _alias_index() -> List[tuple]:
     return sorted(set(pairs), key=lambda p: -len(p[0]))
 
 
+# Printed names that a fuzzy alias match would silently mis-assign. Each one is
+# a real analyte that appears on ordinary PCOS-workup panels alongside the one
+# it would collide with.
+_NEVER_FUZZY = [
+    re.compile(r"\bfree\s*t\s*[34]\b|\bft\s*[34]\b", re.IGNORECASE),   # thyroid, not androgen
+    re.compile(r"triiodothyronin|thyroxin", re.IGNORECASE),
+    re.compile(r"\bnon[\s-]*hdl\b", re.IGNORECASE),                       # not HDL
+    re.compile(r"\bmacroprolactin\b", re.IGNORECASE),                     # not prolactin
+    re.compile(r"\b(post[\s-]*prandial|pp|random|2\s*h(ou)?r)\b", re.IGNORECASE),  # not fasting
+    re.compile(r"\bratio\b", re.IGNORECASE),                              # lipid ratios
+    re.compile(r"\banti[\s-]*tpo|thyroid\s*peroxidase|\btg\s*ab\b", re.IGNORECASE),
+]
+
+
 def normalise_analyte_name(name: str) -> str:
     """
     Map a name as PRINTED on a report onto the canonical name the parser knows.
@@ -226,19 +241,43 @@ def normalise_analyte_name(name: str) -> str:
         candidates.append(raw[: raw.rfind("(")])
     candidates.append(raw)
 
+    # Anything matching one of these is NOT the analyte a fuzzy match would
+    # claim, and must never be normalised. The fuzzy pass previously mapped
+    # thyroid "Free T3"/"Free T4" onto "Free Testosterone" — the alias "Free T"
+    # normalises to "freet" and "freet3".startswith("freet") — so a completely
+    # normal thyroid panel produced Free Testosterone 3.1 against a (0.3, 1.9)
+    # range, i.e. critical_high, and asserted biochemical hyperandrogenism.
+    # That is the single most consequential lab claim this system makes.
+    for rx in _NEVER_FUZZY:
+        if rx.search(raw):
+            return raw
+
     index = _alias_index()
     for cand in candidates:
         n = _norm(cand)
         if not n:
             continue
-        for alias, canonical in index:            # exact
+        for alias, canonical in index:            # exact only
             if n == alias:
                 return canonical
-        for alias, canonical in index:            # printed name extends the alias
-            if len(alias) >= 3 and (n.startswith(alias) or n.endswith(alias)):
+
+    # Fuzzy passes are restricted to aliases long enough to be unambiguous, and
+    # a candidate may only EXTEND an alias with non-digits: "free t" -> "free t3"
+    # is a different analyte, whereas "testosterone" -> "testosterone, total" is
+    # the same one written out.
+    for cand in candidates:
+        n = _norm(cand)
+        if not n:
+            continue
+        for alias, canonical in index:
+            if len(alias) < 5:
+                continue
+            if n.startswith(alias) and not n[len(alias):len(alias) + 1].isdigit():
                 return canonical
-        for alias, canonical in index:            # alias sits inside the printed name
-            if len(alias) >= 4 and alias in n:
+            if n.endswith(alias):
+                return canonical
+        for alias, canonical in index:
+            if len(alias) >= 6 and alias in n:
                 return canonical
     return raw
 
