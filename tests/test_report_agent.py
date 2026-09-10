@@ -34,8 +34,15 @@ PANEL = [
 def _offline():
     store.reset_store_for_tests("sqlite://")
     reset_store()
+    # NOTE: patching "src.nodes.synthesize_verdict.synthesize_verdict" is a
+    # NO-OP here — report_agent binds the name at import time
+    # (`from src.nodes.synthesize_verdict import synthesize_verdict`), so the
+    # module-global it actually calls is report_agent.synthesize_verdict.
+    # Patching the source module left the real function live, which would have
+    # made a paid LLM call if _run() had not patched the right target.
     with patch.object(report_agent, "_retrieve", return_value=("", [])), \
-         patch("src.nodes.synthesize_verdict.synthesize_verdict") as _:
+         patch.object(report_agent, "synthesize_verdict",
+                      return_value={"verdict": "V", "disclaimer": "D"}):
         yield
 
 

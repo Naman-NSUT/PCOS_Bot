@@ -20,7 +20,7 @@ import json
 import logging
 import re
 from functools import lru_cache
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from openai import OpenAI
 
@@ -66,27 +66,69 @@ Respond with ONLY this JSON object:
 """
 
 
-def downscale(image_bytes: bytes, max_edge: int = MAX_EDGE) -> bytes:
-    """Shrink an oversized photo. Falls back to the original if Pillow is absent."""
+# A 1.5 MB crafted PNG can decompress to hundreds of megabytes. Pillow's stock
+# limit (~89M pixels) is far above anything a phone camera produces, so cap it
+# at roughly a 50-megapixel photo — generous for a real report, useless as an
+# amplification vector.
+MAX_PIXELS = 50_000_000
+
+
+def validate_image(image_bytes: bytes) -> bool:
+    """
+    Confirm the bytes really are a decodable image of sane dimensions.
+
+    Content-Type is attacker-controlled and downscale() used to FAIL OPEN — any
+    Pillow exception returned the original bytes, which were then base64'd into
+    a paid vision call. So arbitrary non-image data could be billed straight to
+    the model.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return True                       # cannot validate; the size cap still applies
+    try:
+        Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img.verify()                  # structural check, does not decode pixels
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            w, h = img.size
+            if w * h > MAX_PIXELS:
+                logger.warning("[transcribe] rejected %dx%d image (%d px)", w, h, w * h)
+                return False
+        return True
+    except Exception as exc:
+        logger.warning("[transcribe] rejected undecodable upload: %s", type(exc).__name__)
+        return False
+
+
+def downscale(image_bytes: bytes, max_edge: int = MAX_EDGE) -> Optional[bytes]:
+    """
+    Shrink an oversized photo.
+
+    Returns None when the bytes are not a usable image — the caller must drop
+    them. Previously this failed open and passed the original bytes through.
+    """
     try:
         from PIL import Image
     except ImportError:
         return image_bytes
     try:
+        Image.MAX_IMAGE_PIXELS = MAX_PIXELS
         img = Image.open(io.BytesIO(image_bytes))
+        img.load()
         if max(img.size) <= max_edge:
             return image_bytes
         ratio = max_edge / max(img.size)
         img = img.convert("RGB").resize(
-            (int(img.width * ratio), int(img.height * ratio)),
+            (max(1, int(img.width * ratio)), max(1, int(img.height * ratio))),
             Image.LANCZOS,
         )
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85)
         return buf.getvalue()
     except Exception as exc:
-        logger.warning("[transcribe] downscale failed, sending original: %s", exc)
-        return image_bytes
+        logger.warning("[transcribe] unusable image dropped: %s", type(exc).__name__)
+        return None
 
 
 def _as_data_url(image_bytes: bytes) -> str:
@@ -119,9 +161,14 @@ def transcribe_images(images: Sequence[bytes]) -> Dict[str, Any]:
         if len(raw) > MAX_BYTES:
             logger.warning("[transcribe] skipping oversized image (%d bytes)", len(raw))
             continue
+        if not validate_image(raw):
+            continue                      # not an image; never pay to send it
+        shrunk = downscale(raw)
+        if shrunk is None:
+            continue
         content.append({
             "type": "image_url",
-            "image_url": {"url": _as_data_url(downscale(raw))},
+            "image_url": {"url": _as_data_url(shrunk)},
         })
 
     if len(content) == 1:

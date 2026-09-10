@@ -60,7 +60,13 @@ def analyse_report(
         return _unreadable("no lab values were legible in the image(s)")
 
     report_text = to_report_text(transcription["analytes"])
-    logger.info("[report] transcribed: %s", report_text[:120])
+    # Log the SHAPE, never the values. This line previously wrote transcribed
+    # lab results ("Total Testosterone: 85 ng/dL, ...") straight into the
+    # application log at INFO, putting clinical data in server logs.
+    logger.info(
+        "[report] transcribed %d analyte(s), %d note(s)",
+        len(transcription["analytes"]), len(transcription["notes"]),
+    )
 
     # ── 2-3. Deterministic parse + flags (the existing, tested engine) ───
     parsed = parse_report_node({"report_text": report_text})["parsed_values"]

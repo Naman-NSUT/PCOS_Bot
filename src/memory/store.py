@@ -35,7 +35,17 @@ def init_store(db_url: Optional[str] = None) -> None:
     """Create the engine and tables. Safe to call repeatedly."""
     global _engine, _SessionFactory
     url = db_url or MEMORY_DB_URL
-    _engine = create_engine(url, future=True)
+    kwargs: dict = {"future": True}
+    if url in ("sqlite://", "sqlite:///:memory:"):
+        # An in-memory SQLite database lives inside a single CONNECTION, so a
+        # second thread gets a fresh, empty one — "no such table". FastAPI runs
+        # sync handlers in a threadpool, so API tests silently exercised no
+        # memory at all (the errors are swallowed because memory is advisory).
+        # StaticPool shares one connection across threads.
+        from sqlalchemy.pool import StaticPool
+        kwargs.update(poolclass=StaticPool,
+                      connect_args={"check_same_thread": False})
+    _engine = create_engine(url, **kwargs)
     Base.metadata.create_all(_engine)
     _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     logger.info("[memory] store ready — %s", url)

@@ -19,9 +19,10 @@ what this workload needs.
 from __future__ import annotations
 
 import logging
+import time
 from typing import List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from src.agents.conversation_agent import get_greeting, process_turn, record_report_turn
@@ -132,15 +133,59 @@ class ReportResponse(BaseModel):
     diagnostic_flags: dict = {}
     concordance: dict = {}
     unreadable: list = []
+    pages_dropped: int = 0
 
 
-MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024          # per file
+MAX_TOTAL_UPLOAD_BYTES = 20 * 1024 * 1024   # per request, across all files
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+
+# Vision calls are the most expensive thing this service does (~25k input tokens
+# and several seconds each), and /chat/report needs no credential — an
+# unauthenticated caller could spend money in a loop. This is a small in-process
+# limiter: enough to stop casual abuse, not a substitute for a real gateway
+# limit in front of the app.
+REPORT_RATE_LIMIT = 5           # uploads...
+REPORT_RATE_WINDOW = 15 * 60    # ...per user per 15 minutes
+_report_calls: dict[str, list[float]] = {}
+
+
+def _rate_key(request: Request, user_token: Optional[str]) -> str:
+    """
+    What to rate-limit on.
+
+    NOT the resolved user_id: _resolve_identity mints a brand-new id for every
+    request without a valid token, so an anonymous flood would get a fresh
+    bucket each time and never be limited — precisely the case this exists for.
+    A recognised token limits that user; everyone else is limited by client
+    address.
+    """
+    known = verify_user_token(user_token)
+    if known:
+        return "u:" + known
+    client = getattr(request, "client", None)
+    return "ip:" + (getattr(client, "host", None) or "unknown")
+
+
+def _rate_limit_ok(user_id: str, now: float) -> tuple[bool, int]:
+    """Returns (allowed, seconds_until_retry)."""
+    hits = [t for t in _report_calls.get(user_id, []) if now - t < REPORT_RATE_WINDOW]
+    if len(hits) >= REPORT_RATE_LIMIT:
+        return False, int(REPORT_RATE_WINDOW - (now - hits[0])) + 1
+    hits.append(now)
+    _report_calls[user_id] = hits
+    # Opportunistic cleanup so the dict cannot grow without bound.
+    if len(_report_calls) > 5000:
+        for uid in [u for u, ts in _report_calls.items()
+                    if not any(now - t < REPORT_RATE_WINDOW for t in ts)]:
+            _report_calls.pop(uid, None)
+    return True, 0
 
 
 @router.post("/report", response_model=ReportResponse,
              summary="Analyse photographs of a lab report inside a consultation")
 def analyse_report_endpoint(
+    request: Request,
     files: list[UploadFile] = File(..., description="One or more report photos"),
     session_id: Optional[str] = Form(None),
     user_token: Optional[str] = Form(None),
@@ -157,16 +202,38 @@ def analyse_report_endpoint(
     """
     user_id, out_token, _ = _resolve_identity(user_token)
 
+    allowed, retry_after = _rate_limit_ok(_rate_key(request, user_token), time.monotonic())
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="That's a lot of reports in a short time. Please try again shortly.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    dropped = max(0, len(files) - MAX_REPORT_IMAGES)
     images: list[bytes] = []
+    total = 0
     for f in files[:MAX_REPORT_IMAGES]:
-        if f.content_type and f.content_type.lower() not in ALLOWED_TYPES:
+        # A MISSING Content-Type used to skip the check entirely, because
+        # `if f.content_type and ...` is falsy when the header is absent.
+        # It is also attacker-controlled, so the real check is the image
+        # validation in transcribe_report; this is only a cheap early reject.
+        ctype = (f.content_type or "").lower()
+        if ctype not in ALLOWED_TYPES:
             raise HTTPException(
                 status_code=415,
-                detail=f"Unsupported file type {f.content_type}. Send a JPEG, PNG or WebP photo.",
+                detail=f"Unsupported file type {f.content_type or 'unknown'}. "
+                       "Send a JPEG, PNG or WebP photo.",
             )
         blob = f.file.read(MAX_UPLOAD_BYTES + 1)
         if len(blob) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Each image must be under 8 MB.")
+        total += len(blob)
+        if total > MAX_TOTAL_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Those images are too large in total. Please send fewer pages.",
+            )
         if blob:
             images.append(blob)
 
@@ -174,7 +241,14 @@ def analyse_report_endpoint(
         raise HTTPException(status_code=400, detail="No readable image was uploaded.")
 
     result = record_report_turn(session_id, images, user_id=user_id)
-    return ReportResponse(**result, user_token=out_token)
+    # Silent truncation used to leave the UI claiming every page was read.
+    if dropped:
+        result = dict(result)
+        result["answer"] = (
+            f"I could only read the first {MAX_REPORT_IMAGES} pages, so {dropped} "
+            f"more weren't included.\n\n" + result["answer"]
+        )
+    return ReportResponse(**result, user_token=out_token, pages_dropped=dropped)
 
 
 @router.delete("/memory", summary="Erase everything remembered about a user")

@@ -447,6 +447,21 @@ def build_user_prompt(
 
 # ── Generation ───────────────────────────────────────────────────────────
 
+# The reply returned when the model call fails. Exposed as a constant with a
+# predicate so callers can TELL a failure from a real answer: the assessment
+# turn previously marked itself delivered even when this apology stood in for
+# it, permanently skipping the assessment for that consultation.
+FAILURE_REPLY = (
+    "I'm really sorry — something went wrong on my end just now. "
+    "Could you try saying that again?"
+)
+
+
+def is_failure_reply(text: str) -> bool:
+    """True when `text` is the placeholder returned after a failed model call."""
+    return text.strip() == FAILURE_REPLY.strip()
+
+
 def generate_response(system_prompt: str, user_prompt: str) -> str:
     """
     Call the LLM to generate a response given system + user prompts.
@@ -461,7 +476,4 @@ def generate_response(system_prompt: str, user_prompt: str) -> str:
         return resp.content.strip()
     except Exception as exc:
         logger.error("[llm_client] LLM call failed: %s", exc)
-        return (
-            "I'm really sorry — something went wrong on my end just now. "
-            "Could you try saying that again?"
-        )
+        return FAILURE_REPLY

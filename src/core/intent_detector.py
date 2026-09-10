@@ -374,7 +374,14 @@ _SYMPTOM_PATTERNS: list[tuple[str, str]] = [
     # ── fertility_concerns ───────────────────────────────────────────────
     (r"trying\b.{0,20}\b(for a baby|to conceive|for a child|to get pregnant|to fall pregnant)",
      "fertility_concerns"),
-    (r"\b(can'?t|cannot|could\s*n'?o?t|couldn'?t|unable)\b.{0,25}\b(get|getting|fall|falling|become|conceiv)\w*\s*(pregnant)?",
+    # "(pregnant)?" used to be OPTIONAL here, so this degenerated into matching
+    # any "can't ... get" — tagging fertility_concerns on "I can't get an
+    # appointment until March". symptom_count gates the PCOS disclosure rules,
+    # the lab-test panel and what is written to permanent memory, so a false
+    # symptom is expensive. The object is now required.
+    (r"\b(can'?t|cannot|could\s*n'?o?t|couldn'?t|unable)\b.{0,25}"
+     r"\b(get|getting|fall|falling|become)\w*\s+pregnant", "fertility_concerns"),
+    (r"\b(can'?t|cannot|couldn'?t|unable|struggl\w*|trying)\b.{0,25}\bconceiv",
      "fertility_concerns"),
     (r"\b(struggl|trouble|difficult)\w*\b.{0,25}(conceiv|pregnan)", "fertility_concerns"),
     (r"\b(fertility|infertil|ttc|ivf|iui|ovulat|conceiv)", "fertility_concerns"),
@@ -454,16 +461,42 @@ _COMPILED_NEGATIONS = {
 }
 
 
+# Clause boundaries. A negation only speaks for its own clause: in "my periods
+# are irregular but my sleep is fine", the "fine" cannot cancel the periods.
+_CLAUSE_BOUNDARY = re.compile(
+    r"(?<=[.!?])\s+|\b(?:but|though|although|however|whereas|while|and)\b|,\s+",
+    re.IGNORECASE,
+)
+
+
 def _is_negated(tag: str, lower_text: str) -> bool:
-    """True when the text asserts this symptom is absent or normal."""
+    """
+    True when the text asserts this symptom is absent or normal.
+
+    Checked CLAUSE BY CLAUSE. A bare whole-string search cancelled symptoms the
+    user was actively reporting — "my periods are irregular but my sleep is
+    fine" had the sleep clause suppressing nothing useful, while "my hair is
+    thick but my periods are all over the place" wrongly cancelled hair_loss
+    that was never claimed and, worse, patterns like the periods one could
+    cancel the very symptom being reported.
+    """
     rx = _COMPILED_NEGATIONS.get(tag)
     if rx is None:
         return False
-    # "irregular" contains "regular", so require the negation match to not be
-    # part of the word "irregular".
-    for m in rx.finditer(lower_text):
-        span = lower_text[max(0, m.start() - 2):m.end()]
-        if "irregular" in lower_text[max(0, m.start() - 12):m.end()]:
+
+    positive = _COMPILED_SYMPTOM_PATTERNS
+    for clause in _CLAUSE_BOUNDARY.split(lower_text):
+        if not clause or not clause.strip():
+            continue
+        m = rx.search(clause)
+        if not m:
+            continue
+        # "irregular" contains "regular" — do not read it as its own negation.
+        if "irregular" in clause[max(0, m.start() - 12):m.end()]:
+            continue
+        # If this same clause ALSO positively asserts the symptom, the negation
+        # is not about it; trust the positive assertion.
+        if any(tag == pt and pat.search(clause) for pat, pt in positive):
             continue
         return True
     return False

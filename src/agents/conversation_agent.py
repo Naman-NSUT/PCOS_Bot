@@ -66,6 +66,7 @@ from src.core.llm_client import (
     build_system_prompt,
     build_user_prompt,
     generate_response,
+    is_failure_reply,
 )
 
 logger = logging.getLogger(__name__)
@@ -737,11 +738,11 @@ def process_turn(session_id: str, user_message: str,
             }
         return _handle_closed_session(session, user_id=user_id)
 
-    # Late-binding: a client that only learns its user_id mid-conversation still
-    # gets its memory attached rather than silently losing the session's writes.
-    if user_id and not session.user_id:
-        session.user_id = user_id
-        _hydrate(session)
+    # Late-binding is deliberately NOT done here any more. Stamping the caller's
+    # user_id onto an unowned session let anyone who knew an anonymous
+    # session_id claim it — inheriting that person's name, symptoms and
+    # transcript into their own permanent record on the next persist.
+    # A session's owner is fixed when it is created.
 
     # 2. Record user turn
     add_turn(session, "user", user_message)
@@ -808,10 +809,16 @@ def process_turn(session_id: str, user_message: str,
     stage = detect_treatment_stage(user_message)
     if treatments or stage:
         update_treatments(session, treatments, stage)
-        if treatments and stage and session.phase < PHASE_ONGOING:
-            # Whenever they raise a therapy AND where they are with it, they get
-            # treatment support — before the assessment (they came for this) or
-            # after it (the plan phase has no pre/post-therapy guidance).
+
+        # Only jump when they are actually ASKING about the therapy. Firing on
+        # any mention meant a first-turn or purely historical remark ("I came
+        # off the pill two years ago") skipped name capture, the whole history
+        # AND the assessment — and jump_to_ongoing marked the assessment
+        # delivered, arming every automatic-closure condition from that turn on.
+        if (treatments and stage
+                and session.phase < PHASE_ONGOING
+                and session.phase >= PHASE_HISTORY          # never on the opening turn
+                and _is_treatment_question(user_message)):
             logger.info(
                 "[agent] treatment question (%s / %s) — switching to ongoing support",
                 ",".join(treatments), stage,
@@ -849,10 +856,16 @@ def process_turn(session_id: str, user_message: str,
     # 12. Generate response
     answer = generate_response(system_prompt, user_prompt)
 
-    # 13a. The assessment is a single turn. Record that it has happened so the
-    # phase machine moves on to the plan and it is never delivered twice.
-    if session.phase == PHASE_ASSESSMENT:
+    # 13a. The assessment is a single turn — but only count it as delivered if
+    # one was actually produced. generate_response swallows every exception and
+    # returns a placeholder apology, so marking it unconditionally meant a
+    # transient LLM failure permanently consumed the assessment: the phase
+    # machine advanced to PLAN, the ASSESSMENT prompt was never built again, and
+    # an error message stood in for the one turn the consultation builds toward.
+    if session.phase == PHASE_ASSESSMENT and not is_failure_reply(answer):
         session.assessment_given = True
+    elif session.phase == PHASE_ASSESSMENT:
+        logger.warning("[agent] assessment turn failed — will be retried next turn")
 
     # 13. Check and update pcos_mentioned
     if not session.pcos_mentioned:
@@ -1073,6 +1086,26 @@ def _build_test_suggestion_context(session: Session) -> str:
         + "\nUse these to inform test suggestions when appropriate. "
         "Never dump the full list — suggest 1-2 tests per turn, tied to the symptom being discussed."
     )
+
+
+_TREATMENT_QUESTION_CUES = [
+    "should i", "shall i", "do i need", "is it worth", "worth taking",
+    "what do you think", "what should", "is it safe", "any good",
+    "side effect", "what to expect", "how long", "will it", "does it",
+    "can i", "is that ok", "is this ok", "help me", "?",
+]
+
+
+def _is_treatment_question(text: str) -> bool:
+    """
+    True when the user is ASKING about a therapy rather than mentioning one.
+
+    "Should I take metformin?" wants treatment support. "I came off the pill two
+    years ago" is history, and treating it as a question skipped the entire
+    consultation.
+    """
+    lower = text.lower()
+    return any(cue in lower for cue in _TREATMENT_QUESTION_CUES)
 
 
 def _mentions_pcos(text: str) -> bool:
