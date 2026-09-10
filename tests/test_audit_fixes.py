@@ -274,3 +274,39 @@ class TestDisclosureGateHasNoHoles:
         s = Session(phase=2)
         s.symptom_count = 1
         assert "must NEVER mention PCOS" in build_system_prompt(s)
+
+
+class TestCrisisMessageReadsWell:
+    """
+    The crisis response is the one message that most needs to read like a person
+    wrote it. `name or "there"` opened it with a stray "there," — found in a
+    live run, not by any test.
+    """
+
+    @pytest.mark.parametrize("category", [
+        "emotional_crisis", "prolonged_amenorrhea", "severe_physical",
+    ])
+    def test_no_stray_there_when_the_name_is_unknown(self, category):
+        s = Session()
+        s.emotional_state = category
+        out = agent._build_urgent_response(s)
+        assert not out.lower().startswith("there,")
+        assert out[0].isupper(), f"starts lowercase: {out[:40]!r}"
+
+    @pytest.mark.parametrize("category", [
+        "emotional_crisis", "prolonged_amenorrhea", "severe_physical",
+    ])
+    def test_the_name_is_used_when_known(self, category):
+        s = Session()
+        s.user_profile.name = "Priya"
+        s.emotional_state = category
+        out = agent._build_urgent_response(s)
+        assert out.startswith("Priya, ")
+        assert out[7].islower(), "body should flow after the name"
+
+    def test_crisis_message_still_says_the_important_things(self):
+        s = Session()
+        s.emotional_state = "emotional_crisis"
+        out = agent._build_urgent_response(s)
+        assert "do not have to carry this alone" in out
+        assert "mental health professional" in out

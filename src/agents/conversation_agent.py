@@ -392,22 +392,36 @@ def _generate_closure_response(session: Session, mode: str) -> str:
     return generate_response(closure_prompt, f"Close the conversation for {name}.")
 
 
+def _greet(session: Session, body: str) -> str:
+    """
+    Prefix a message with the person's name when we know it.
+
+    `name or "there"` produced "there, it sounds like you're going through a
+    really hard time" — a sentence opening with a stray "there,". That landed in
+    the crisis response, the one message that most needs to read like a person
+    wrote it. When there is no name the body simply stands alone, capitalised.
+    """
+    name = session.user_profile.name
+    if not name:
+        return body[:1].upper() + body[1:]
+    return f"{name}, " + body[:1].lower() + body[1:]
+
+
 def _build_urgent_response(session: Session) -> str:
     """Build an urgent escalation response based on the escalation category."""
-    name = session.user_profile.name or "there"
     category = session.emotional_state  # stored during detection
 
     if category == "emotional_crisis":
-        return (
-            f"{name}, it sounds like you're going through a really hard time right now. "
+        return _greet(session,
+            "It sounds like you're going through a really hard time right now. "
             "Your mental health matters just as much as your physical health. "
             "Please reach out to someone you trust today — a friend, a family member, "
             "or a mental health professional. You do not have to carry this alone."
         )
 
     if category == "prolonged_amenorrhea":
-        return (
-            f"{name}, going without a period for that long is something your body is "
+        return _greet(session,
+            "Going without a period for that long is something your body is "
             "signalling needs attention. Please make an appointment with a gynaecologist "
             "or your GP this week if you can — they'll be able to run the right tests "
             "and figure out what's going on."
@@ -417,8 +431,8 @@ def _build_urgent_response(session: Session) -> str:
     symptoms_str = ", ".join(
         s.replace("_", " ") for s in session.symptom_list[:3]
     ) if session.symptom_list else "what you're describing"
-    return (
-        f"{name}, what you're describing sounds like something that needs to be seen by "
+    return _greet(session,
+        "What you're describing sounds like something that needs to be seen by "
         "a doctor soon — not because I want to alarm you, but because this is something "
         "that should be assessed properly and quickly. Please reach out to your doctor "
         "or visit urgent care as soon as you can."
